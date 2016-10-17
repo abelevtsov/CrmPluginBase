@@ -67,6 +67,7 @@
     <Compile Include="Interfaces\IPluginMessageOperationExecutor.cs" />
     <Compile Include="ParametersWrapper.cs" />
     <Compile Include="PluginMessageName.cs" />
+    <Compile Include="PluginVirtualMessageName.cs" />
     <Compile Include="Properties\AssemblyInfo.cs" />
   </ItemGroup>
   <ItemGroup>
