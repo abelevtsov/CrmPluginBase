@@ -1,4 +1,5 @@
 ﻿using System;
+using System.Collections.Generic;
 using System.Reflection;
 
 using CrmPluginBase.Exceptions;
@@ -18,7 +19,11 @@ namespace CrmPluginBase
         {
             Unsecure = unsecure;
             Secure = secure;
+
+            FillEventHandlers();
         }
+
+        private IDictionary<string, Action<IPluginExecutionContext, ParametersWrapper<T>>> eventHandlers = new Dictionary<string, Action<IPluginExecutionContext, ParametersWrapper<T>>>();
 
         protected string Unsecure { get; private set; }
 
@@ -321,84 +326,59 @@ namespace CrmPluginBase
         {
             var parameters = new ParametersWrapper<T>(executionContext);
             var parentContext = executionContext.ParentContext;
-            if (parentContext != null)
+            var messageName = parentContext == null ? executionContext.MessageName : parentContext.MessageName;
+            if (eventHandlers.TryGetValue(messageName, out Action<IPluginExecutionContext, ParametersWrapper<T>> pluginAction))
             {
-                switch (parentContext.MessageName)
-                {
-                    case PluginVirtualMessageName.ExportToExcel:
-                    case PluginVirtualMessageName.ExportDynamicToExcel:
-                        OnExportToExcel(executionContext, parameters.Query, parameters.BusinessEntityCollection);
-                        break;
-                }
+                pluginAction(executionContext, parameters);
             }
+        }
 
-            // ToDo: implement methods dictionary using and/or Visitor pattern
-            switch (executionContext.MessageName)
-            {
-                case PluginMessageName.Create:
-                    OnCreate(executionContext, parameters.TypedEntity(), parameters.Id, parameters.PostEntityImage);
-                    break;
-                case PluginMessageName.Update:
-                    var convertedEntity = parameters.TypedEntity();
-                    OnUpdate(executionContext, convertedEntity, convertedEntity.Id, parameters.PreEntityImage, parameters.PostEntityImage);
-                    break;
-                case PluginMessageName.Delete:
-                    OnDelete(executionContext, parameters.TargetRef.LogicalName, parameters.TargetRef.Id, parameters.PreEntityImage);
-                    break;
-                case PluginMessageName.SetState:
-                case PluginMessageName.SetStateDynamicEntity:
-                    OnSetState(executionContext, parameters.EntityMoniker.LogicalName, parameters.EntityMoniker.Id, parameters.State, parameters.Status);
-                    break;
-                case PluginMessageName.Assign:
-                    OnAssign(executionContext, parameters.TargetRef.LogicalName, parameters.TargetRef.Id, parameters.Assignee.LogicalName, parameters.Assignee.Id);
-                    break;
-                case PluginMessageName.Merge:
-                    OnMerge(executionContext,
-                            parameters.TargetRef,
-                            parameters.SubordinateId,
-                            parameters.UpdateContent,
-                            parameters.PerformParentingChecks);
-                    break;
-                case PluginMessageName.AddMember:
-                    OnAddMember(executionContext, parameters.ListId, parameters.EntityId, parameters.Id);
-                    break;
-                case PluginMessageName.RemoveMember:
-                    OnRemoveMember(executionContext, parameters.ListId, parameters.EntityId);
-                    break;
-                case PluginMessageName.RetrieveMultiple:
-                    OnRetrieveMultiple(executionContext, parameters.Query, parameters.BusinessEntityCollection);
-                    break;
-                case PluginMessageName.Close:
-                    OnClose(executionContext, parameters.ClosedEntity, parameters.Status);
-                    break;
-                case PluginMessageName.Cancel:
-                    OnCancel(executionContext, parameters.OrderClose, parameters.Status);
-                    break;
-                case PluginMessageName.GrantAccess:
+        private void FillEventHandlers()
+        {
+            eventHandlers.Clear();
+
+            eventHandlers.Add(PluginVirtualMessageName.ExportToExcel, (ctx, p) => OnExportToExcel(ctx, p.Query, p.BusinessEntityCollection));
+            eventHandlers.Add(PluginVirtualMessageName.ExportDynamicToExcel, (ctx, p) => OnExportToExcel(ctx, p.Query, p.BusinessEntityCollection));
+            eventHandlers.Add(PluginMessageName.Create, (ctx, p) => OnCreate(ctx, p.TypedEntity(), p.Id, p.PostEntityImage));
+            eventHandlers.Add(
+                PluginMessageName.Update,
+                (ctx, p) =>
+                {
+                    var typedEntity = p.TypedEntity();
+                    OnUpdate(ctx, typedEntity, typedEntity.Id, p.PreEntityImage, p.PostEntityImage);
+                });
+            eventHandlers.Add(PluginMessageName.Delete, (ctx, p) => OnDelete(ctx, p.TargetRef.LogicalName, p.TargetRef.Id, p.PreEntityImage));
+            eventHandlers.Add(PluginMessageName.SetState, (ctx, p) => OnSetState(ctx, p.EntityMoniker.LogicalName, p.EntityMoniker.Id, p.State, p.Status));
+            eventHandlers.Add(PluginMessageName.SetStateDynamicEntity, (ctx, p) => OnSetState(ctx, p.EntityMoniker.LogicalName, p.EntityMoniker.Id, p.State, p.Status));
+            eventHandlers.Add(PluginMessageName.Assign, (ctx, p) => OnAssign(ctx, p.TargetRef.LogicalName, p.TargetRef.Id, p.Assignee.LogicalName, p.Assignee.Id));
+            eventHandlers.Add(PluginMessageName.Merge, (ctx, p) => OnMerge(ctx, p.TargetRef, p.SubordinateId, p.UpdateContent, p.PerformParentingChecks));
+            eventHandlers.Add(PluginMessageName.AddMember, (ctx, p) => OnAddMember(ctx, p.ListId, p.EntityId, p.Id));
+            eventHandlers.Add(PluginMessageName.RemoveMember, (ctx, p) => OnRemoveMember(ctx, p.ListId, p.EntityId));
+            eventHandlers.Add(PluginMessageName.RetrieveMultiple, (ctx, p) => OnRetrieveMultiple(ctx, p.Query, p.BusinessEntityCollection));
+            eventHandlers.Add(PluginMessageName.Close, (ctx, p) => OnClose(ctx, p.ClosedEntity, p.Status));
+            eventHandlers.Add(PluginMessageName.Cancel, (ctx, p) => OnCancel(ctx, p.OrderClose, p.Status));
+            eventHandlers.Add(
+                PluginMessageName.GrantAccess,
+                (ctx, p) =>
                     OnGrantAccess(
-                        executionContext,
-                        parameters.TargetRef.LogicalName,
-                        parameters.TargetRef.Id,
-                        parameters.PrincipalAccess.Principal.LogicalName,
-                        parameters.PrincipalAccess.Principal.Id,
-                        parameters.PrincipalAccess.AccessMask);
-                    break;
-                case PluginMessageName.ModifyAccess:
+                        ctx,
+                        p.TargetRef.LogicalName,
+                        p.TargetRef.Id,
+                        p.PrincipalAccess.Principal.LogicalName,
+                        p.PrincipalAccess.Principal.Id,
+                        p.PrincipalAccess.AccessMask));
+            eventHandlers.Add(
+                PluginMessageName.ModifyAccess,
+                (ctx, p) =>
                     OnModifyAccess(
-                        executionContext,
-                        parameters.TargetRef.LogicalName,
-                        parameters.TargetRef.Id,
-                        parameters.PrincipalAccess.Principal.LogicalName,
-                        parameters.PrincipalAccess.Principal.Id,
-                        parameters.PrincipalAccess.AccessMask);
-                    break;
-                case PluginMessageName.RevokeAccess:
-                    OnRevokeAccess(executionContext, parameters.TargetRef.LogicalName, parameters.TargetRef.Id, parameters.Revokee.LogicalName, parameters.Revokee.Id);
-                    break;
-                case PluginMessageName.RetrieveFilteredForms:
-                    OnRetrieveFilteredForms(executionContext, parameters.EntityLogicalName, parameters.SystemUserId, parameters.FormType, parameters.SystemForms);
-                    break;
-            }
+                        ctx,
+                        p.TargetRef.LogicalName,
+                        p.TargetRef.Id,
+                        p.PrincipalAccess.Principal.LogicalName,
+                        p.PrincipalAccess.Principal.Id,
+                        p.PrincipalAccess.AccessMask));
+            eventHandlers.Add(PluginMessageName.RevokeAccess, (ctx, p) => OnRevokeAccess(ctx, p.TargetRef.LogicalName, p.TargetRef.Id, p.Revokee.LogicalName, p.Revokee.Id));
+            eventHandlers.Add(PluginMessageName.RetrieveFilteredForms, (ctx, p) => OnRetrieveFilteredForms(ctx, p.EntityLogicalName, p.SystemUserId, p.FormType, p.SystemForms));
         }
     }
 }

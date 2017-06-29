@@ -6,7 +6,7 @@ using System.Runtime.InteropServices;
 [assembly: AssemblyConfiguration("")]
 [assembly: AssemblyCompany("")]
 [assembly: AssemblyProduct("CrmPluginBase")]
-[assembly: AssemblyCopyright("Copyright © Raresoft 2016")]
+[assembly: AssemblyCopyright("Copyright © abelevtsov 2017")]
 [assembly: AssemblyTrademark("")]
 [assembly: AssemblyCulture("")]
 [assembly: ComVisible(false)]
