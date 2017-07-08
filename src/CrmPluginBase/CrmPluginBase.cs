@@ -13,8 +13,6 @@ namespace CrmPluginBase
 {
     public abstract class CrmPluginBase<T> : IPluginMessageOperationExecutor<T>, IPlugin where T : Entity
     {
-        private IOrganizationService systemService;
-
         protected CrmPluginBase(string unsecure, string secure = null)
         {
             Unsecure = unsecure;
@@ -23,11 +21,11 @@ namespace CrmPluginBase
             FillEventHandlers();
         }
 
-        private IDictionary<string, Action<IPluginExecutionContext, ParametersWrapper<T>>> eventHandlers = new Dictionary<string, Action<IPluginExecutionContext, ParametersWrapper<T>>>();
+        private readonly IDictionary<string, Action<IPluginExecutionContext, ParametersWrapper<T>>> eventHandlers = new Dictionary<string, Action<IPluginExecutionContext, ParametersWrapper<T>>>();
 
-        protected string Unsecure { get; private set; }
+        protected string Unsecure { get; }
 
-        protected string Secure { get; private set; }
+        protected string Secure { get; }
 
         protected IServiceProvider ServiceProvider { get; set; }
 
@@ -35,15 +33,10 @@ namespace CrmPluginBase
         {
             get
             {
-                if (systemService == null)
-                {
-                    var context = ServiceProvider.GetService<IPluginExecutionContext>();
-                    GetProxyTypesAssemblyProperty(context.GetType()).SetValue(context, GetProxyAssembly(), new object[0]);
-                    var serviceFactory = ServiceProvider.GetService<IOrganizationServiceFactory>();
-                    systemService = serviceFactory.CreateOrganizationService(null);
-                }
-
-                return systemService;
+                var context = ServiceProvider.GetService<IPluginExecutionContext>();
+                GetProxyTypesAssemblyProperty(context.GetType()).SetValue(context, GetProxyAssembly(), new object[0]);
+                var serviceFactory = ServiceProvider.GetService<IOrganizationServiceFactory>();
+                return serviceFactory.CreateOrganizationService(null);
             }
         }
 
@@ -58,13 +51,7 @@ namespace CrmPluginBase
             }
         }
 
-        protected ITracingService TracingService
-        {
-            get
-            {
-                return ServiceProvider.GetService<ITracingService>();
-            }
-        }
+        protected ITracingService TracingService => ServiceProvider.GetService<ITracingService>();
 
         public void Execute(IServiceProvider serviceProvider)
         {
@@ -81,7 +68,7 @@ namespace CrmPluginBase
             }
             catch (CrmException ex)
             {
-                exceptionMessage = string.Format("Error occured:\n{0}", ex.Message);
+                exceptionMessage = $"Error occured:\n{ex.Message}";
                 if (!ex.Expected)
                 {
                     exceptionMessage += "\nStackTrace:\n" + ex.StackTrace;
@@ -91,7 +78,7 @@ namespace CrmPluginBase
             }
             catch (Exception ex)
             {
-                exceptionMessage = string.Format("Error occured:\n{0}\nStackTrace:\n{1}", ex.Message, ex.StackTrace);
+                exceptionMessage = $"Error occured:\n{ex.Message}\nStackTrace:\n{ex.StackTrace}";
                 originException = ex;
             }
             finally
@@ -317,6 +304,25 @@ namespace CrmPluginBase
         {
         }
 
+        /// <summary>
+        /// Override for CustomAction execute message
+        /// </summary>
+        /// <param name="context">Crm Context</param>
+        /// <param name="customAction">Custom action request</param>
+        /// <param name="targetRef">Target entity reference - null if custom action not entity related</param>
+        public virtual void OnCustomOperation(IPluginExecutionContext context, OrganizationRequest customAction, EntityReference targetRef)
+        {
+        }
+
+        /// <summary>
+        /// Override for CustomAction execute message
+        /// </summary>
+        /// <param name="context">Crm Context</param>
+        /// <param name="customAction">Custom action request</param>
+        public virtual void OnCustomOperation(IPluginExecutionContext context, OrganizationRequest customAction)
+        {
+        }
+
         protected virtual Assembly GetProxyAssembly()
         {
             return Assembly.GetAssembly(GetType());
@@ -331,7 +337,23 @@ namespace CrmPluginBase
         {
             var parameters = new ParametersWrapper<T>(executionContext);
             var parentContext = executionContext.ParentContext;
-            var messageName = parentContext == null ? executionContext.MessageName : parentContext.MessageName;
+            var prop = executionContext.GetType().GetProperty("MessageCategory");
+            var messageCategory = string.Empty;
+            if (prop != null)
+            {
+                messageCategory = (string)prop.GetValue(executionContext);
+            }
+
+            string messageName;
+            if (messageCategory == MessageCategory.CustomOperation)
+            {
+                messageName = MessageCategory.CustomOperation;
+            }
+            else
+            {
+                messageName = parentContext == null ? executionContext.MessageName : parentContext.MessageName;
+            }
+
             if (eventHandlers.TryGetValue(messageName, out Action<IPluginExecutionContext, ParametersWrapper<T>> pluginAction))
             {
                 pluginAction(executionContext, parameters);
@@ -384,6 +406,20 @@ namespace CrmPluginBase
                         p.PrincipalAccess.AccessMask));
             eventHandlers.Add(PluginMessageName.RevokeAccess, (ctx, p) => OnRevokeAccess(ctx, p.TargetRef.LogicalName, p.TargetRef.Id, p.Revokee.LogicalName, p.Revokee.Id));
             eventHandlers.Add(PluginMessageName.RetrieveFilteredForms, (ctx, p) => OnRetrieveFilteredForms(ctx, p.EntityLogicalName, p.SystemUserId, p.FormType, p.SystemForms));
+            eventHandlers.Add(
+                MessageCategory.CustomOperation,
+                (ctx, p) =>
+                {
+                    var request = new OrganizationRequest(ctx.MessageName) { Parameters = ctx.InputParameters };
+                    if (p.TargetRef == null)
+                    {
+                        OnCustomOperation(ctx, request);
+                    }
+                    else
+                    {
+                        OnCustomOperation(ctx, request, p.TargetRef);
+                    }
+                });
         }
     }
 }
